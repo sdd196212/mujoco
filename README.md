@@ -27,7 +27,7 @@ limited to `+/-35 Nm` and the two wheel motors to `+/-4 Nm`. `Tp` has no
 software limit; after VMC mapping, `environment.py` applies only these final
 actuator limits.
 
-The terminal `theta(R/L)` value is the calibrated physical angle. The model's
-VMC geometric zero is offset by `-pi/4`, so `Simulation.py` reports
-`vmc.theta - pi/4` while retaining the unshifted `vmc.theta` for the MATLAB
-LQR state.
+The model's VMC geometric zero is offset by `-pi/4`. `Simulation.py` forms the
+physical angle as `vmc.theta - pi/4` and uses this calibrated value for both
+the terminal `theta(R/L)` output and the MATLAB LQR state. The fixed offset's
+derivative is zero, so `dtheta` is unchanged.

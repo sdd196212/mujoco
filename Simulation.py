@@ -12,8 +12,8 @@ from lqr_controller import LQRController
 CONTROL_DIVIDER = 4  # model timestep is 1 ms; control update is 4 ms
 
 # The MuJoCo leg installation has a -pi/4 physical angle at the VMC
-# geometric zero.  Keep vmc.theta unchanged for the MATLAB LQR state and
-# apply this calibration only to the reported physical angle.
+# geometric zero.  The calibrated angle is used by the LQR and F0 gravity
+# projection so the controller follows the physical model convention.
 THETA_OUTPUT_OFFSET = -math.pi / 4.0
 
 # Virtual-leg force controller.  F0 is a radial force in the VMC leg plane.
@@ -75,9 +75,8 @@ def leg_force_f0(robot, vmc, enabled=True):
         vmc.d_L0 = 0.0
         vmc._f0_initialized = True
 
-    # theta is the leg angle from vertical in the canonical VMC convention;
-    # cos(theta) is therefore the radial force's vertical projection.
-    vertical_projection = math.cos(vmc.theta)
+    # Use the calibrated physical leg angle for the radial force projection.
+    vertical_projection = math.cos(vmc.theta + THETA_OUTPUT_OFFSET)
     projection = max(abs(vertical_projection), 0.25)
     projection_sign = 1.0 if vertical_projection >= 0.0 else -1.0
     gravity = (
@@ -116,12 +115,17 @@ def apply_lqr(robot, vmc_r, vmc_l, lqr, enabled=True, roll_pid=None):
         pitch=pitch,
         gyro=gyro,
     )
+    # Fixed installation offset is part of the physical theta state; its
+    # derivative is unchanged because the offset is constant.
+    theta_phys_r = vmc_r.theta + THETA_OUTPUT_OFFSET
+    theta_phys_l = vmc_l.theta + THETA_OUTPUT_OFFSET
+
     if enabled:
         # The MATLAB plant uses the opposite pitch orientation from MuJoCo.
         # Its control subsystem applies the exported gain as K @ state.
-        u_r = lqr.control(vmc_r.theta, vmc_r.d_theta, robot.x, robot.d_x,
+        u_r = lqr.control(theta_phys_r, vmc_r.d_theta, robot.x, robot.d_x,
                           -pitch, -gyro, vmc_r.L0)
-        u_l = lqr.control(vmc_l.theta, vmc_l.d_theta, robot.x, robot.d_x,
+        u_l = lqr.control(theta_phys_l, vmc_l.d_theta, robot.x, robot.d_x,
                           -pitch, -gyro, vmc_l.L0)
     else:
         u_r = u_l = (0.0, 0.0)
@@ -154,13 +158,10 @@ def apply_lqr(robot, vmc_r, vmc_l, lqr, enabled=True, roll_pid=None):
     base_f0_l = leg_force_f0(robot, vmc_l, enabled=enabled)
     #vmc_r.F0 = max(-F0_MAX, min(F0_MAX, base_f0_r - roll_f0))
     #vmc_l.F0 = max(-F0_MAX, min(F0_MAX, base_f0_l + roll_f0))
-    #vmc_r.Tp = Tp_r
-    #vmc_l.Tp = Tp_l
+    vmc_r.Tp = Tp_r
+    vmc_l.Tp = Tp_l
     vmc_r.vmc_calc_torque()
     vmc_l.vmc_calc_torque()
-
-    theta_phys_r = vmc_r.theta + THETA_OUTPUT_OFFSET
-    theta_phys_l = vmc_l.theta + THETA_OUTPUT_OFFSET
 
     # VMC torque_set is [phi4, phi1], matching the existing actuator order.
     robot.joint_torque = [
