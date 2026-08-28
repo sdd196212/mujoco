@@ -64,6 +64,12 @@ def apply_lqr(robot, vmc_r, vmc_l, lqr, enabled=True):
     # Positive MATLAB T drives +x. Both wheel axes require a negative control.
     robot.wheel_torque = [-T_r, -T_l]
     robot.actuator_set_torque()
+    print(
+        f"[LQR] F0(R/L)=({vmc_r.F0:+.6f}, {vmc_l.F0:+.6f}) N, "
+        f"Tp(R/L)=({Tp_r:+.6f}, {Tp_l:+.6f}) Nm, "
+        f"wheel T(R/L)=({T_r:+.6f}, {T_l:+.6f}) Nm, "
+        f"actuator(R/L)=({robot.wheel_torque[0]:+.6f}, {robot.wheel_torque[1]:+.6f}) Nm"
+    )
     return (T_r, Tp_r), (T_l, Tp_l)
 
 
