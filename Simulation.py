@@ -19,8 +19,9 @@ LEG_LENGTH_KP = 800.0       # N/m
 LEG_LENGTH_KD = 35.0        # N/(m/s)
 F0_MAX = 120.0              # N, before the existing motor torque limits
 
-# Roll PID output is a differential radial force: +dF0 on the right leg and
-# -dF0 on the left leg correct a positive MuJoCo roll angle.
+# Roll PID output is a differential radial force.  With the model's actual
+# IMU/actuator convention, a positive roll correction subtracts dF0 from the
+# right leg and adds it to the left leg.
 ROLL_TARGET = 0.0           # rad
 ROLL_KP = 35.0              # N/rad
 ROLL_KI = 2.0               # N/(rad*s)
@@ -44,8 +45,8 @@ class RollPID:
         self.integral = 0.0
 
     def update(self, roll, roll_rate, dt, target=ROLL_TARGET):
-        # The tested actuator convention requires positive correction for a
-        # positive roll angle, hence error is measured as roll - target.
+        # Positive correction is applied through the reversed left/right F0
+        # mapping below, so keep the PID error in the intuitive direction.
         error = float(roll) - float(target)
         self.integral += error * max(float(dt), 0.0)
         self.integral = max(-self.integral_limit,
@@ -141,12 +142,13 @@ def apply_lqr(robot, vmc_r, vmc_l, lqr, enabled=True, roll_pid=None):
         roll_pid.reset()
         roll_f0 = 0.0
 
-    # Add radial force for gravity support and leg-length regulation, then add
-    # the roll PID's differential force before the unchanged VMC Jacobian.
+    # Add radial force for gravity support and leg-length regulation.  The
+    # measured model convention requires the roll differential to be applied
+    # as -dF0 on the right and +dF0 on the left.
     base_f0_r = leg_force_f0(robot, vmc_r, enabled=enabled)
     base_f0_l = leg_force_f0(robot, vmc_l, enabled=enabled)
-    vmc_r.F0 = max(-F0_MAX, min(F0_MAX, base_f0_r + roll_f0))
-    vmc_l.F0 = max(-F0_MAX, min(F0_MAX, base_f0_l - roll_f0))
+    vmc_r.F0 = max(-F0_MAX, min(F0_MAX, base_f0_r - roll_f0))
+    vmc_l.F0 = max(-F0_MAX, min(F0_MAX, base_f0_l + roll_f0))
     vmc_r.Tp = Tp_r
     vmc_l.Tp = Tp_l
     vmc_r.vmc_calc_torque()

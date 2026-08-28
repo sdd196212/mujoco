@@ -16,7 +16,8 @@ existing VMC Jacobian to the four leg actuators. The wheel actuator receives
 the existing sign-corrected LQR `T` output.
 
 Roll control uses `RollPID` in `Simulation.py`. Its output is a differential
-force (`+dF0` on the right leg and `-dF0` on the left leg), based on the IMU
+force (`-dF0` on the right leg and `+dF0` on the left leg for a positive
+correction), based on the IMU
 roll angle `euler[0]` and roll rate `gyro[0]`. The default gains are `Kp=35
 N/rad`, `Ki=2 N/(rad*s)`, `Kd=3 N*s/rad`, with a `+/-30 N` differential-force
 limit and integral anti-windup.
