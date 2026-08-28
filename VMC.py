@@ -168,7 +168,7 @@ class leg_VMC:
         # linearized at theta=0, so an absolute installation angle must not be
         # injected here as a constant error; doing so creates a large Tp at
         # the nominal pose and drives both legs into rotation.
-        self.theta = math.pi/2.0 - PitchR - self.phi0
+        self.theta = math.pi/2.0 - PitchR - self.phi0+0.7
         self.d_theta = -GyroR - self.d_phi0
         
         # 更新last_phi0

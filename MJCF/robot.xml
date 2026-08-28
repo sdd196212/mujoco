@@ -43,7 +43,7 @@
       <joint name="base_free" type="free"/>
       <site name="imu" type="box" size="0.002 0.002 0.002"  rgba="1 1 0 1"/>
       <geom type="mesh" material="base_mat" mesh="base_link" 
-        class="touch" mass="20.0"/>
+        class="touch" mass="10.3"/>
       
 
       <!-- 右腿臂（蓝色系） -->

@@ -147,10 +147,10 @@ def apply_lqr(robot, vmc_r, vmc_l, lqr, enabled=True, roll_pid=None):
     # as -dF0 on the right and +dF0 on the left.
     base_f0_r = leg_force_f0(robot, vmc_r, enabled=enabled)
     base_f0_l = leg_force_f0(robot, vmc_l, enabled=enabled)
-    #vmc_r.F0 = max(-F0_MAX, min(F0_MAX, base_f0_r - roll_f0))
-    #vmc_l.F0 = max(-F0_MAX, min(F0_MAX, base_f0_l + roll_f0))
-    #vmc_r.Tp = Tp_r
-    #vmc_l.Tp = Tp_l
+    vmc_r.F0 = max(-F0_MAX, min(F0_MAX, base_f0_r - roll_f0))
+    vmc_l.F0 = max(-F0_MAX, min(F0_MAX, base_f0_l + roll_f0))
+    vmc_r.Tp = Tp_r
+    vmc_l.Tp = Tp_l
     vmc_r.vmc_calc_torque()
     vmc_l.vmc_calc_torque()
 
@@ -162,11 +162,12 @@ def apply_lqr(robot, vmc_r, vmc_l, lqr, enabled=True, roll_pid=None):
         -vmc_l.torque_set[1],   # left jIO / -phi1
     ]
     # Positive MATLAB T drives +x. Both wheel axes require a negative control.
-    #robot.wheel_torque = [-T_r, -T_l]
+    robot.wheel_torque = [-T_r, -T_l]
     robot.actuator_set_torque()
     print(
         f"[LQR] F0(R/L)=({vmc_r.F0:+.6f}, {vmc_l.F0:+.6f}) N, "
         f"roll dF0={roll_f0:+.6f} N, "
+        f"pitch={pitch:+.6f} N, "
         f"theta(R/L)=({vmc_r.theta:+.6f}, {vmc_l.theta:+.6f}) rad, "
         f"Tp(R/L)=({Tp_r:+.6f}, {Tp_l:+.6f}) Nm, "
         f"wheel T(R/L)=({T_r:+.6f}, {T_l:+.6f}) Nm, "
