@@ -164,7 +164,10 @@ class leg_VMC:
         self.d_alpha = -self.d_phi0
         
         # 计算theta和d_theta（状态变量，用于LQR控制）
-        self.theta = math.pi/2.0 - PitchR - self.phi0
+        # MuJoCo's installed leg has a -pi/4 physical angle at the VMC
+        # geometric zero.  Apply the fixed installation offset here so the
+        # same physical theta is used by logging, LQR, and F0 projection.
+        self.theta = math.pi/2.0 - PitchR - self.phi0 - math.pi/4.0
         self.d_theta = -GyroR - self.d_phi0
         
         # 更新last_phi0
