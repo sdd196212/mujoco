@@ -79,7 +79,7 @@ def main():
     vmc_r = leg_VMC()
     vmc_l = leg_VMC()
     lqr = LQRController()
-
+#
     robot.sensor_read_data()
     step_count = 0
     try:
