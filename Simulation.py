@@ -14,10 +14,46 @@ CONTROL_DIVIDER = 4  # model timestep is 1 ms; control update is 4 ms
 # Virtual-leg force controller.  F0 is a radial force in the VMC leg plane.
 # The nominal MuJoCo pose has L0 ~= 0.143 m, so keep the target explicit and
 # easy to retune without changing the VMC geometry or the MATLAB LQR gains.
-LEG_LENGTH_TARGET = 0.143
+LEG_LENGTH_TARGET = 0.28
 LEG_LENGTH_KP = 800.0       # N/m
 LEG_LENGTH_KD = 35.0        # N/(m/s)
 F0_MAX = 120.0              # N, before the existing motor torque limits
+
+# Roll PID output is a differential radial force: +dF0 on the right leg and
+# -dF0 on the left leg correct a positive MuJoCo roll angle.
+ROLL_TARGET = 0.0           # rad
+ROLL_KP = 35.0              # N/rad
+ROLL_KI = 2.0               # N/(rad*s)
+ROLL_KD = 3.0               # N*s/rad
+ROLL_F0_MAX = 30.0           # N, differential force limit
+
+
+class RollPID:
+    """Roll-angle PID whose output is a differential virtual-leg force."""
+
+    def __init__(self, kp=ROLL_KP, ki=ROLL_KI, kd=ROLL_KD,
+                 output_limit=ROLL_F0_MAX, integral_limit=5.0):
+        self.kp = float(kp)
+        self.ki = float(ki)
+        self.kd = float(kd)
+        self.output_limit = abs(float(output_limit))
+        self.integral_limit = abs(float(integral_limit))
+        self.integral = 0.0
+
+    def reset(self):
+        self.integral = 0.0
+
+    def update(self, roll, roll_rate, dt, target=ROLL_TARGET):
+        # The tested actuator convention requires positive correction for a
+        # positive roll angle, hence error is measured as roll - target.
+        error = float(roll) - float(target)
+        self.integral += error * max(float(dt), 0.0)
+        self.integral = max(-self.integral_limit,
+                            min(self.integral_limit, self.integral))
+        correction = self.kp * error + self.ki * self.integral
+        correction += self.kd * float(roll_rate)
+        return float(max(-self.output_limit,
+                         min(self.output_limit, correction)))
 
 
 def leg_force_f0(robot, vmc, enabled=True):
@@ -51,7 +87,7 @@ def leg_force_f0(robot, vmc, enabled=True):
     return float(max(-F0_MAX, min(F0_MAX, force)))
 
 
-def apply_lqr(robot, vmc_r, vmc_l, lqr, enabled=True):
+def apply_lqr(robot, vmc_r, vmc_l, lqr, enabled=True, roll_pid=None):
     """Compute canonical torques and map them to the six XML actuators."""
     pitch = float(robot.euler[1])
     gyro = float(robot.gyro[1])
@@ -87,10 +123,30 @@ def apply_lqr(robot, vmc_r, vmc_l, lqr, enabled=True):
     T_r, Tp_r = map(float, u_r)
     T_l, Tp_l = map(float, u_l)
 
-    # Add radial force for gravity support and leg-length regulation, then map
-    # both virtual-leg inputs through the unchanged VMC Jacobian.
-    vmc_r.F0 = leg_force_f0(robot, vmc_r, enabled=enabled)
-    vmc_l.F0 = leg_force_f0(robot, vmc_l, enabled=enabled)
+    # Keep one PID instance across control cycles when the caller does not
+    # explicitly provide one.  This preserves the integral state in scripts
+    # that use apply_lqr() directly.
+    if roll_pid is None:
+        roll_pid = getattr(robot, "_roll_pid", None)
+        if roll_pid is None:
+            roll_pid = RollPID()
+            robot._roll_pid = roll_pid
+    if enabled:
+        roll_f0 = roll_pid.update(
+            roll=float(robot.euler[0]),
+            roll_rate=float(robot.gyro[0]),
+            dt=CONTROL_DIVIDER * robot.sensor_T,
+        )
+    else:
+        roll_pid.reset()
+        roll_f0 = 0.0
+
+    # Add radial force for gravity support and leg-length regulation, then add
+    # the roll PID's differential force before the unchanged VMC Jacobian.
+    base_f0_r = leg_force_f0(robot, vmc_r, enabled=enabled)
+    base_f0_l = leg_force_f0(robot, vmc_l, enabled=enabled)
+    vmc_r.F0 = max(-F0_MAX, min(F0_MAX, base_f0_r + roll_f0))
+    vmc_l.F0 = max(-F0_MAX, min(F0_MAX, base_f0_l - roll_f0))
     vmc_r.Tp = Tp_r
     vmc_l.Tp = Tp_l
     vmc_r.vmc_calc_torque()
@@ -108,6 +164,7 @@ def apply_lqr(robot, vmc_r, vmc_l, lqr, enabled=True):
     robot.actuator_set_torque()
     print(
         f"[LQR] F0(R/L)=({vmc_r.F0:+.6f}, {vmc_l.F0:+.6f}) N, "
+        f"roll dF0={roll_f0:+.6f} N, "
         f"Tp(R/L)=({Tp_r:+.6f}, {Tp_l:+.6f}) Nm, "
         f"wheel T(R/L)=({T_r:+.6f}, {T_l:+.6f}) Nm, "
         f"actuator(R/L)=({robot.wheel_torque[0]:+.6f}, {robot.wheel_torque[1]:+.6f}) Nm"
