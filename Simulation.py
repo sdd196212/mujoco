@@ -11,6 +11,11 @@ from lqr_controller import LQRController
 
 CONTROL_DIVIDER = 4  # model timestep is 1 ms; control update is 4 ms
 
+# The MuJoCo leg installation has a -pi/4 physical angle at the VMC
+# geometric zero.  Keep vmc.theta unchanged for the MATLAB LQR state and
+# apply this calibration only to the reported physical angle.
+THETA_OUTPUT_OFFSET = -math.pi / 4.0
+
 # Virtual-leg force controller.  F0 is a radial force in the VMC leg plane.
 # The nominal MuJoCo pose has L0 ~= 0.143 m, so keep the target explicit and
 # easy to retune without changing the VMC geometry or the MATLAB LQR gains.
@@ -149,10 +154,13 @@ def apply_lqr(robot, vmc_r, vmc_l, lqr, enabled=True, roll_pid=None):
     base_f0_l = leg_force_f0(robot, vmc_l, enabled=enabled)
     #vmc_r.F0 = max(-F0_MAX, min(F0_MAX, base_f0_r - roll_f0))
     #vmc_l.F0 = max(-F0_MAX, min(F0_MAX, base_f0_l + roll_f0))
-    vmc_r.Tp = Tp_r
-    vmc_l.Tp = Tp_l
+    #vmc_r.Tp = Tp_r
+    #vmc_l.Tp = Tp_l
     vmc_r.vmc_calc_torque()
     vmc_l.vmc_calc_torque()
+
+    theta_phys_r = vmc_r.theta + THETA_OUTPUT_OFFSET
+    theta_phys_l = vmc_l.theta + THETA_OUTPUT_OFFSET
 
     # VMC torque_set is [phi4, phi1], matching the existing actuator order.
     robot.joint_torque = [
@@ -167,7 +175,7 @@ def apply_lqr(robot, vmc_r, vmc_l, lqr, enabled=True, roll_pid=None):
     print(
         f"[LQR] F0(R/L)=({vmc_r.F0:+.6f}, {vmc_l.F0:+.6f}) N, "
         f"roll dF0={roll_f0:+.6f} N, "
-        f"theta(R/L)=({vmc_r.theta:+.6f}, {vmc_l.theta:+.6f}) rad, "
+        f"theta(R/L)=({theta_phys_r:+.6f}, {theta_phys_l:+.6f}) rad, "
         f"Tp(R/L)=({Tp_r:+.6f}, {Tp_l:+.6f}) Nm, "
         f"wheel T(R/L)=({T_r:+.6f}, {T_l:+.6f}) Nm, "
         f"actuator(R/L)=({robot.wheel_torque[0]:+.6f}, {robot.wheel_torque[1]:+.6f}) Nm"
