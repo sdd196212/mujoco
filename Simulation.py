@@ -11,6 +11,45 @@ from lqr_controller import LQRController
 
 CONTROL_DIVIDER = 4  # model timestep is 1 ms; control update is 4 ms
 
+# Virtual-leg force controller.  F0 is a radial force in the VMC leg plane.
+# The nominal MuJoCo pose has L0 ~= 0.143 m, so keep the target explicit and
+# easy to retune without changing the VMC geometry or the MATLAB LQR gains.
+LEG_LENGTH_TARGET = 0.143
+LEG_LENGTH_KP = 800.0       # N/m
+LEG_LENGTH_KD = 35.0        # N/(m/s)
+F0_MAX = 120.0              # N, before the existing motor torque limits
+
+
+def leg_force_f0(robot, vmc, enabled=True):
+    """Return gravity compensation plus closed-loop radial leg force."""
+    if not enabled:
+        return 0.0
+
+    # vmc_calc_pos's first finite difference starts from zero by design.  Do
+    # not let that initialization transient become a large force impulse.
+    if not getattr(vmc, "_f0_initialized", False):
+        vmc.last_L0 = vmc.L0
+        vmc.last_d_L0 = 0.0
+        vmc.d_L0 = 0.0
+        vmc._f0_initialized = True
+
+    # theta is the leg angle from vertical in the canonical VMC convention;
+    # cos(theta) is therefore the radial force's vertical projection.
+    vertical_projection = math.cos(vmc.theta)
+    projection = max(abs(vertical_projection), 0.25)
+    projection_sign = 1.0 if vertical_projection >= 0.0 else -1.0
+    gravity = (
+        0.5
+        * float(robot.model.body_mass.sum())
+        * abs(float(robot.model.opt.gravity[2]))
+        / projection
+        * projection_sign
+    )
+
+    length_error = LEG_LENGTH_TARGET - vmc.L0
+    force = gravity + LEG_LENGTH_KP * length_error - LEG_LENGTH_KD * vmc.d_L0
+    return float(max(-F0_MAX, min(F0_MAX, force)))
+
 
 def apply_lqr(robot, vmc_r, vmc_l, lqr, enabled=True):
     """Compute canonical torques and map them to the six XML actuators."""
@@ -48,9 +87,12 @@ def apply_lqr(robot, vmc_r, vmc_l, lqr, enabled=True):
     T_r, Tp_r = map(float, u_r)
     T_l, Tp_l = map(float, u_l)
 
-    # Map the virtual leg torque through the current mechanism Jacobian.
-    vmc_r.F0, vmc_r.Tp = 0.0, Tp_r
-    vmc_l.F0, vmc_l.Tp = 0.0, Tp_l
+    # Add radial force for gravity support and leg-length regulation, then map
+    # both virtual-leg inputs through the unchanged VMC Jacobian.
+    vmc_r.F0 = leg_force_f0(robot, vmc_r, enabled=enabled)
+    vmc_l.F0 = leg_force_f0(robot, vmc_l, enabled=enabled)
+    vmc_r.Tp = Tp_r
+    vmc_l.Tp = Tp_l
     vmc_r.vmc_calc_torque()
     vmc_l.vmc_calc_torque()
 
