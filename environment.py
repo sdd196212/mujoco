@@ -73,11 +73,10 @@ class LegWheelRobot:
         self.d_x = (self.wheel_vel[0] + self.wheel_vel[1]) * 0.5 * self.wheel_r
         self.x = self.x + self.d_x*self.sensor_T
 
-        # Raw joint coordinates; mirroring is explicit in Simulation.py.
-        right_front_pos = self.data.sensor('Right_front_joint_pos').data.copy()[0]  # jAB
-        right_rear_pos = self.data.sensor('Right_rear_joint_pos').data.copy()[0]    # jAG
-        left_front_pos = self.data.sensor('Left_front_joint_pos').data.copy()[0]     # jIJ
-        left_rear_pos = self.data.sensor('Left_rear_joint_pos').data.copy()[0]       # jIO
+        right_front_pos = self.data.sensor('Right_front_joint_pos').data.copy()[0] + 0.027  # jAB
+        right_rear_pos = self.data.sensor('Right_rear_joint_pos').data.copy()[0] + 1.3       # jAG
+        left_front_pos = self.data.sensor('Left_front_joint_pos').data.copy()[0] + 0.003     # jIJ
+        left_rear_pos = self.data.sensor('Left_rear_joint_pos').data.copy()[0] - 1.3         # jIO
         self.joint_pos = np.array([right_front_pos, right_rear_pos, left_front_pos, left_rear_pos])
         
 

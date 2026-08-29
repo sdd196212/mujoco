@@ -90,7 +90,7 @@ class leg_VMC:
             self.phi1 = phi1
         if phi4 is not None:
             self.phi4 = phi4
-
+        
         # 从C代码中看，对于右腿，pitch和gyro需要取负号
         # 但这里保持通用性，根据实际需要调整
         PitchR = -self.pitch
@@ -154,21 +154,11 @@ class leg_VMC:
             self.last_phi0 = self.phi0
             self.first_flag = 1
 
-        # atan2 is periodic; unwrap the one-step difference before dividing
-        # by dt so a crossing at +/-pi cannot create a false 1e3 rad/s kick.
-        delta_phi0 = math.atan2(
-            math.sin(self.phi0 - self.last_phi0),
-            math.cos(self.phi0 - self.last_phi0),
-        )
-        self.d_phi0 = delta_phi0 / dt
+        self.d_phi0 = (self.phi0 - self.last_phi0) / dt
         self.d_alpha = -self.d_phi0
         
         # 计算theta和d_theta（状态变量，用于LQR控制）
-        # Keep theta as the LQR deviation coordinate.  The gain table is
-        # linearized at theta=0, so an absolute installation angle must not be
-        # injected here as a constant error; doing so creates a large Tp at
-        # the nominal pose and drives both legs into rotation.
-        self.theta = math.pi/2.0 - PitchR - self.phi0+0.7
+        self.theta = math.pi/2.0 - PitchR - self.phi0
         self.d_theta = -GyroR - self.d_phi0
         
         # 更新last_phi0
@@ -185,23 +175,25 @@ class leg_VMC:
 
     def vmc_calc_torque(self):
         sin_phi3_phi2 = math.sin(self.phi3 - self.phi2)
+
+
         # 计算j11
         self.j11 = (self.l1 * math.sin(self.phi0 - self.phi3) * 
                    math.sin(self.phi1 - self.phi2)) / sin_phi3_phi2
         
         
-        # Keep MATLAB's left-to-right expression semantics: divide by L0,
-        # then multiply by sin(phi3-phi2).
-        self.j12 = ((self.l1 * math.cos(self.phi0 - self.phi3) *
-                     math.sin(self.phi1 - self.phi2)) / self.L0) * sin_phi3_phi2
+        self.j12 = (self.l1 * math.cos(self.phi0 - self.phi3) * 
+                   math.sin(self.phi1 - self.phi2)) / (self.L0 * sin_phi3_phi2)
         
         self.j21 = (self.l4 * math.sin(self.phi0 - self.phi2) * 
                    math.sin(self.phi3 - self.phi4)) / sin_phi3_phi2
         
-        self.j22 = ((self.l4 * math.cos(self.phi0 - self.phi2) *
-                     math.sin(self.phi3 - self.phi4)) / self.L0) * sin_phi3_phi2
+        self.j22 = (self.l4 * math.cos(self.phi0 - self.phi2) * 
+                   math.sin(self.phi3 - self.phi4)) / (self.L0 * sin_phi3_phi2)
         
         self.torque_set[1] = self.j11 * self.F0 + self.j12 * self.Tp
         self.torque_set[0] = self.j21 * self.F0 + self.j22 * self.Tp
 
     #Tp：扭转力；F0：支持力
+
+
