@@ -12,7 +12,7 @@ from lqr_controller import LQRController
 CONTROL_DIVIDER = 4  # model timestep is 1 ms; control update is 4 ms
 
 # Virtual-leg force controller. F0 is a radial force in the VMC leg plane.
-LEG_LENGTH_TARGET = 0.25
+LEG_LENGTH_TARGET = 0.18
 LEG_LENGTH_KP = 400.0       # N/m
 LEG_LENGTH_KI = 300.0       # N/(m*s)
 LEG_LENGTH_KD = 20.0        # N/(m/s)
@@ -140,7 +140,12 @@ def apply_lqr(robot, vmc_r, vmc_l, lqr, enabled=True, roll_pid=None):
         # Its control subsystem applies the exported gain as K @ state.
         u_r = lqr.control(vmc_r.theta, vmc_r.d_theta, robot.x, robot.d_x,
                           -pitch, -gyro, vmc_r.L0)
-        u_l = lqr.control(vmc_l.theta, vmc_l.d_theta, robot.x, robot.d_x,
+        # The left XML joints use the opposite rotational axes.  Keep the
+        # left VMC geometry in its physical coordinates, but mirror theta
+        # into the same LQR coordinate as the right leg.  Without this,
+        # a symmetric pose appears as theta_R=-theta_L and produces
+        # opposite wheel torques.
+        u_l = lqr.control(-vmc_l.theta, -vmc_l.d_theta, robot.x, robot.d_x,
                           -pitch, -gyro, vmc_l.L0)
     else:
         u_r = u_l = (0.0, 0.0)
@@ -178,6 +183,7 @@ def apply_lqr(robot, vmc_r, vmc_l, lqr, enabled=True, roll_pid=None):
     vmc_l.F0 = -vmc_l.F0
     vmc_r.Tp = Tp_r + split_tp
     vmc_l.Tp = -Tp_l - split_tp
+    vmc_l.Tp = -vmc_l.Tp
     vmc_r.vmc_calc_torque()
     vmc_l.vmc_calc_torque()
 
@@ -190,7 +196,7 @@ def apply_lqr(robot, vmc_r, vmc_l, lqr, enabled=True, roll_pid=None):
     ]
     # Positive MATLAB T drives +x. Both wheel axes require a negative control.
     robot.wheel_torque = [-T_r, -T_l]
-    robot.wheel_torque = [0, 0]
+    # robot.wheel_torque = [0, 0]
     robot.actuator_set_torque()
     print(
         f"[LQR] F0(R/L)=({vmc_r.F0:+.6f}, {vmc_l.F0:+.6f}) N, "
@@ -201,7 +207,7 @@ def apply_lqr(robot, vmc_r, vmc_l, lqr, enabled=True, roll_pid=None):
         f"split={split_error:+.6f} rad, split Tp={split_tp:+.6f} Nm, "
         f"Tp(R/L)=({vmc_r.Tp:+.6f}, {vmc_l.Tp:+.6f}) Nm, "
         f"wheel T(R/L)=({T_r:+.6f}, {T_l:+.6f}) Nm, "
-        f"actuator(R/L)=({robot.wheel_torque[0]:+.6f}, {robot.wheel_torque[1]:+.6f}) Nm"
+        f"actuator ctrl(R/L)=({robot.data.ctrl[4]:+.6f}, {robot.data.ctrl[5]:+.6f}) Nm"
     )
     return (T_r, Tp_r), (T_l, Tp_l)
 
