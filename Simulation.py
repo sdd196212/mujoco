@@ -135,6 +135,12 @@ def apply_lqr(robot, vmc_r, vmc_l, lqr, enabled=True, roll_pid=None):
         pitch=-pitch,
         gyro=-gyro,
     )
+    # The MuJoCo installation pose has a fixed nonzero theta.  Keep the
+    # physical theta state for the original Tp/leg control, but record the
+    # nominal value so its constant contribution can be removed from T only.
+    if not hasattr(robot, "_lqr_theta_ref_r"):
+        robot._lqr_theta_ref_r = float(vmc_r.theta)
+        robot._lqr_theta_ref_l = float(-vmc_l.theta)
     if enabled:
         # The MATLAB plant uses the opposite pitch orientation from MuJoCo.
         # Its control subsystem applies the exported gain as K @ state.
@@ -152,6 +158,13 @@ def apply_lqr(robot, vmc_r, vmc_l, lqr, enabled=True, roll_pid=None):
 
     T_r, Tp_r = map(float, u_r)
     T_l, Tp_l = map(float, u_l)
+    if enabled:
+        # Remove only the installation-angle bias from the wheel row.  Tp is
+        # intentionally left unchanged so the prior leg zero is preserved.
+        K_r = lqr.gain_table.at(vmc_r.L0)
+        K_l = lqr.gain_table.at(vmc_l.L0)
+        T_r -= float(K_r[0, 0]) * robot._lqr_theta_ref_r
+        T_l -= float(K_l[0, 0]) * robot._lqr_theta_ref_l
     split_tp, split_error = split_torque_pid(
         robot, vmc_r, vmc_l, control_dt, enabled=enabled
     )
@@ -196,7 +209,7 @@ def apply_lqr(robot, vmc_r, vmc_l, lqr, enabled=True, roll_pid=None):
     ]
     # Positive MATLAB T drives +x. Both wheel axes require a negative control.
     robot.wheel_torque = [-T_r, -T_l]
-    # robot.wheel_torque = [0, 0]
+    #robot.wheel_torque = [0, 0]
     robot.actuator_set_torque()
     print(
         f"[LQR] F0(R/L)=({vmc_r.F0:+.6f}, {vmc_l.F0:+.6f}) N, "
