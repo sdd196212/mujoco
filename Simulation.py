@@ -12,7 +12,7 @@ from lqr_controller import LQRController
 CONTROL_DIVIDER = 4  # model timestep is 1 ms; control update is 4 ms
 
 # Virtual-leg force controller. F0 is a radial force in the VMC leg plane.
-LEG_LENGTH_TARGET = 0.18
+LEG_LENGTH_TARGET = 0.28
 LEG_LENGTH_KP = 400.0       # N/m
 LEG_LENGTH_KI = 300.0       # N/(m*s)
 LEG_LENGTH_KD = 20.0        # N/(m/s)
@@ -142,27 +142,36 @@ def apply_lqr(robot, vmc_r, vmc_l, lqr, enabled=True, roll_pid=None):
         robot._lqr_theta_ref_r = float(vmc_r.theta)
         robot._lqr_theta_ref_l = float(-vmc_l.theta)
     if enabled:
-        # The MATLAB plant uses the opposite pitch orientation from MuJoCo.
-        # Its control subsystem applies the exported gain as K @ state.
+        # Use +pitch here so the wheel-torque pitch feedback is opposite to
+        # the previous convention. Its control subsystem applies K @ state.
         u_r = lqr.control(vmc_r.theta, vmc_r.d_theta, robot.x, robot.d_x,
-                          -pitch, -gyro, vmc_r.L0)
+                          pitch, -gyro, vmc_r.L0)
         # The left XML joints use the opposite rotational axes.  Keep the
         # left VMC geometry in its physical coordinates, but mirror theta
         # into the same LQR coordinate as the right leg.  Without this,
         # a symmetric pose appears as theta_R=-theta_L and produces
         # opposite wheel torques.
         u_l = lqr.control(-vmc_l.theta, -vmc_l.d_theta, robot.x, robot.d_x,
-                          -pitch, -gyro, vmc_l.L0)
+                          pitch, -gyro, vmc_l.L0)
     else:
         u_r = u_l = (0.0, 0.0)
 
     T_r, Tp_r = map(float, u_r)
     T_l, Tp_l = map(float, u_l)
     if enabled:
-        # Remove only the installation-angle bias from the wheel row.  Tp is
-        # intentionally left unchanged so the prior leg zero is preserved.
+        # The MuJoCo dx convention is opposite to the MATLAB Tp row.  Flip
+        # only the dx contribution to Tp; keep all other LQR terms unchanged.
         K_r = lqr.gain_table.at(vmc_r.L0)
         K_l = lqr.gain_table.at(vmc_l.L0)
+        Tp_r -= 2.0 * float(K_r[1, 3]) * float(robot.d_x)
+        Tp_l -= 2.0 * float(K_l[1, 3]) * float(robot.d_x)
+        # The LQR calls above use +pitch to reverse the wheel-torque pitch
+        # feedback. Restore the original pitch sign for Tp, which must keep
+        # the leg torque convention unchanged.
+        Tp_r -= 2.0 * float(K_r[1, 4]) * pitch
+        Tp_l -= 2.0 * float(K_l[1, 4]) * pitch
+        # Remove only the installation-angle bias from the wheel row.  Tp is
+        # intentionally left unchanged so the prior leg zero is preserved.
         T_r -= float(K_r[0, 0]) * robot._lqr_theta_ref_r
         T_l -= float(K_l[0, 0]) * robot._lqr_theta_ref_l
     split_tp, split_error = split_torque_pid(
@@ -195,7 +204,7 @@ def apply_lqr(robot, vmc_r, vmc_l, lqr, enabled=True, roll_pid=None):
     # The left VMC plane is mirrored before actuator mapping.
     vmc_l.F0 = -vmc_l.F0
     vmc_r.Tp = Tp_r + split_tp
-    vmc_l.Tp = -Tp_l - split_tp
+    vmc_l.Tp = -Tp_l + split_tp
     vmc_l.Tp = -vmc_l.Tp
     vmc_r.vmc_calc_torque()
     vmc_l.vmc_calc_torque()
