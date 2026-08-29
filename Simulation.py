@@ -10,12 +10,6 @@ from lqr_controller import LQRController
 
 
 CONTROL_DIVIDER = 4  # model timestep is 1 ms; control update is 4 ms
-RAD_TO_DEG = 180.0 / math.pi
-
-
-def rad_to_deg(value):
-    """Convert an angular value from the internal radian unit to degrees."""
-    return float(value) * RAD_TO_DEG
 
 # Virtual-leg force controller. F0 is a radial force in the VMC leg plane.
 LEG_LENGTH_TARGET = 0.28
@@ -28,33 +22,34 @@ F0_MAX = 120.0              # N, before the existing motor torque limits
 # Roll PID output is a differential radial force.  With the model's actual
 # IMU/actuator convention, a positive roll correction subtracts dF0 from the
 # right leg and adds it to the left leg.
-ROLL_TARGET = 0.0           # deg
-ROLL_KP = 35.0 / RAD_TO_DEG             # N/deg
-ROLL_KI = 2.0 / RAD_TO_DEG              # N/(deg*s)
-ROLL_KD = 3.0 / RAD_TO_DEG              # N*s/deg
+ROLL_TARGET = 0.0           # rad
+ROLL_KP = 35.0              # N/rad
+ROLL_KI = 2.0               # N/(rad*s)
+ROLL_KD = 3.0               # N*s/rad
 ROLL_F0_MAX = 30.0           # N, differential force limit
 
 # Anti-split PID. In mirrored VMC coordinates, symmetric legs satisfy
 # theta_R + theta_L = 0.
-SPLIT_KP = 18.0 / RAD_TO_DEG             # Nm/deg
-SPLIT_KI = 1.0 / RAD_TO_DEG              # Nm/(deg*s)
-SPLIT_KD = 1.5 / RAD_TO_DEG              # Nm*s/deg
-SPLIT_INTEGRAL_LIMIT = 0.5 * RAD_TO_DEG  # deg*s
+SPLIT_KP = 18.0             # Nm/rad
+SPLIT_KI = 1.0              # Nm/(rad*s)
+SPLIT_KD = 1.5              # Nm*s/rad
+SPLIT_INTEGRAL_LIMIT = 0.5  # rad*s
 SPLIT_TP_MAX = 8.0          # Nm, correction only
 
 # Step-by-step diagnosis mode: hold the leg-to-body angle alpha at zero with
 # a local PD loop instead of the LQR Tp output. Theta itself is not modified.
-FORCE_LQR_THETA_ZERO = True
+FORCE_LQR_THETA_ZERO = False
+THETA_INSTALL_OFFSET = math.pi / 4.0
 LOCK_LEG_BODY_ANGLE_ZERO = True
-LEG_BODY_ANGLE_KP = 20.0 / RAD_TO_DEG   # Nm/deg
-LEG_BODY_ANGLE_KD = 2.0 / RAD_TO_DEG    # Nm/(deg/s)
+LEG_BODY_ANGLE_KP = 20.0   # Nm/rad
+LEG_BODY_ANGLE_KD = 2.0    # Nm/(rad/s)
 
 
 class RollPID:
     """Roll-angle PID whose output is a differential virtual-leg force."""
 
     def __init__(self, kp=ROLL_KP, ki=ROLL_KI, kd=ROLL_KD,
-                 output_limit=ROLL_F0_MAX, integral_limit=5.0 * RAD_TO_DEG):
+                 output_limit=ROLL_F0_MAX, integral_limit=5.0):
         self.kp = float(kp)
         self.ki = float(ki)
         self.kd = float(kd)
@@ -111,8 +106,8 @@ def split_torque_pid(robot, vmc_r, vmc_l, dt, enabled=True):
         robot.split_integral = 0.0
         return 0.0, 0.0
 
-    error = rad_to_deg(vmc_r.theta + vmc_l.theta)
-    error_rate = rad_to_deg(vmc_r.d_theta + vmc_l.d_theta)
+    error = vmc_r.theta + vmc_l.theta
+    error_rate = vmc_r.d_theta + vmc_l.d_theta
     robot.split_integral += error * max(float(dt), 0.0)
     robot.split_integral = max(
         -SPLIT_INTEGRAL_LIMIT,
@@ -129,12 +124,8 @@ def split_torque_pid(robot, vmc_r, vmc_l, dt, enabled=True):
 
 def apply_lqr(robot, vmc_r, vmc_l, lqr, enabled=True, roll_pid=None):
     """Compute canonical torques and map them to the six XML actuators."""
-    # MuJoCo/VMC geometry remains in radians. Controller-facing angular
-    # states are converted to degrees without changing the K values.
-    pitch_rad = float(robot.euler[1])
-    gyro_rad = float(robot.gyro[1])
-    pitch = rad_to_deg(pitch_rad)
-    gyro = rad_to_deg(gyro_rad)
+    pitch = float(robot.euler[1])
+    gyro = float(robot.gyro[1])
     control_dt = CONTROL_DIVIDER * robot.sensor_T
 
     # Keep the original MuJoCo VMC input convention.
@@ -142,31 +133,36 @@ def apply_lqr(robot, vmc_r, vmc_l, lqr, enabled=True, roll_pid=None):
         dt=control_dt,
         phi1=float(robot.joint_pos[0] + math.pi),
         phi4=float(robot.joint_pos[1]),
-        pitch=pitch_rad,
-        gyro=gyro_rad,
+        pitch=pitch,
+        gyro=gyro,
     )
     vmc_l.vmc_calc_pos(
         dt=control_dt,
         phi1=float(robot.joint_pos[3] + math.pi),
         phi4=float(robot.joint_pos[2]),
-        pitch=-pitch_rad,
-        gyro=-gyro_rad,
+        pitch=-pitch,
+        gyro=-gyro,
     )
-    # The MuJoCo installation pose has a fixed nonzero theta.  Keep the
-    # physical theta state for the original Tp/leg control, but record the
-    # nominal value so its constant contribution can be removed from T only.
-    if not hasattr(robot, "_lqr_theta_ref_r"):
-        robot._lqr_theta_ref_r = rad_to_deg(vmc_r.theta)
-        robot._lqr_theta_ref_l = rad_to_deg(-vmc_l.theta)
+    # Keep printable LQR inputs defined even when the controller is disabled.
+    theta_r_lqr = 0.0
+    dtheta_r_lqr = 0.0
+    theta_l_lqr = 0.0
+    dtheta_l_lqr = 0.0
     if enabled:
         # Use +pitch here so the wheel-torque pitch feedback is opposite to
         # the previous convention. Its control subsystem applies K @ state.
-        theta_r_lqr = 0.0 if FORCE_LQR_THETA_ZERO else rad_to_deg(vmc_r.theta)
-        dtheta_r_lqr = 0.0 if FORCE_LQR_THETA_ZERO else rad_to_deg(vmc_r.d_theta)
-        theta_l_lqr = 0.0 if FORCE_LQR_THETA_ZERO else rad_to_deg(-vmc_l.theta)
-        dtheta_l_lqr = 0.0 if FORCE_LQR_THETA_ZERO else rad_to_deg(-vmc_l.d_theta)
+        theta_r_lqr = (
+            0.0 if FORCE_LQR_THETA_ZERO
+            else vmc_r.theta - THETA_INSTALL_OFFSET/3
+        )
+        dtheta_r_lqr = 0.0 if FORCE_LQR_THETA_ZERO else vmc_r.d_theta
+        theta_l_lqr = (
+            0.0 if FORCE_LQR_THETA_ZERO
+            else -vmc_l.theta - THETA_INSTALL_OFFSET/3
+        )
+        dtheta_l_lqr = 0.0 if FORCE_LQR_THETA_ZERO else -vmc_l.d_theta
         u_r = lqr.control(theta_r_lqr, dtheta_r_lqr, robot.x, robot.d_x,
-                          pitch, -gyro, vmc_r.L0)
+                          -pitch, -gyro, vmc_r.L0)
         # u_r = lqr.control(vmc_r.theta, vmc_r.d_theta, robot.x, robot.d_x,
         #                           pitch, -gyro, vmc_r.L0)
         # The left XML joints use the opposite rotational axes.  Keep the
@@ -175,7 +171,7 @@ def apply_lqr(robot, vmc_r, vmc_l, lqr, enabled=True, roll_pid=None):
         # a symmetric pose appears as theta_R=-theta_L and produces
         # opposite wheel torques.
         u_l = lqr.control(theta_l_lqr, dtheta_l_lqr, robot.x, robot.d_x,
-                          pitch, -gyro, vmc_l.L0)
+                          -pitch, -gyro, vmc_l.L0)
     else:
         u_r = u_l = (0.0, 0.0)
 
@@ -193,17 +189,13 @@ def apply_lqr(robot, vmc_r, vmc_l, lqr, enabled=True, roll_pid=None):
         # the leg torque convention unchanged.
         Tp_r -= 2.0 * float(K_r[1, 4]) * pitch
         Tp_l -= 2.0 * float(K_l[1, 4]) * pitch
-        # Remove only the installation-angle bias from the wheel row.  Tp is
-        # intentionally left unchanged so the prior leg zero is preserved.
-        T_r -= float(K_r[0, 0]) * robot._lqr_theta_ref_r
-        T_l -= float(K_l[0, 0]) * robot._lqr_theta_ref_l
     if LOCK_LEG_BODY_ANGLE_ZERO and enabled:
         # Alpha is the leg angle in the body frame. Mirror the left-leg
         # coordinate before applying the same restoring law to both legs.
-        alpha_r_ctrl = rad_to_deg(vmc_r.alpha)
-        dalpha_r_ctrl = rad_to_deg(vmc_r.d_alpha)
-        alpha_l_ctrl = rad_to_deg(-vmc_l.alpha)
-        dalpha_l_ctrl = rad_to_deg(-vmc_l.d_alpha)
+        alpha_r_ctrl = float(vmc_r.alpha)
+        dalpha_r_ctrl = float(vmc_r.d_alpha)
+        alpha_l_ctrl = float(-vmc_l.alpha)
+        dalpha_l_ctrl = float(-vmc_l.d_alpha)
         Tp_r = -LEG_BODY_ANGLE_KP * alpha_r_ctrl - LEG_BODY_ANGLE_KD * dalpha_r_ctrl
         Tp_l = -LEG_BODY_ANGLE_KP * alpha_l_ctrl - LEG_BODY_ANGLE_KD * dalpha_l_ctrl
         split_tp, split_error = 0.0, alpha_r_ctrl + alpha_l_ctrl
@@ -222,8 +214,8 @@ def apply_lqr(robot, vmc_r, vmc_l, lqr, enabled=True, roll_pid=None):
             robot._roll_pid = roll_pid
     if enabled:
         roll_f0 = roll_pid.update(
-            roll=rad_to_deg(robot.euler[0]),
-            roll_rate=rad_to_deg(robot.gyro[0]),
+            roll=float(robot.euler[0]),
+            roll_rate=float(robot.gyro[0]),
             dt=control_dt,
         )
     else:
@@ -253,17 +245,18 @@ def apply_lqr(robot, vmc_r, vmc_l, lqr, enabled=True, roll_pid=None):
     ]
     # Positive MATLAB T drives +x. Both wheel axes require a negative control.
     # robot.wheel_torque = [-T_r, -T_l]
-    robot.wheel_torque = [T_r, T_l]
+    robot.wheel_torque = [-T_r, -T_l]
     #robot.wheel_torque = [0, 0]
     robot.actuator_set_torque()
     print(
         f"[LQR] F0(R/L)=({vmc_r.F0:+.6f}, {vmc_l.F0:+.6f}) N, "
         f"L0(R/L)=({vmc_r.L0:+.6f}, {vmc_l.L0:+.6f}) m, "
         f"roll dF0={roll_f0:+.6f} N, "
-        f"pitch={pitch:+.6f} deg, "
-        f"theta(R/L)=({rad_to_deg(vmc_r.theta):+.6f}, {rad_to_deg(vmc_l.theta):+.6f}) deg, "
-        f"alpha(R/L)=({rad_to_deg(vmc_r.alpha):+.6f}, {rad_to_deg(vmc_l.alpha):+.6f}) deg, "
-        f"split={split_error:+.6f} deg, split Tp={split_tp:+.6f} Nm, "
+        f"pitch={pitch:+.6f} rad, "
+        f"theta(R/L)=({vmc_r.theta:+.6f}, {vmc_l.theta:+.6f}) rad, "
+        f"alpha(R/L)=({vmc_r.alpha:+.6f}, {vmc_l.alpha:+.6f}) rad, "
+        f"theta_lqr(R/L)=({theta_r_lqr:+.6f}, {theta_l_lqr:+.6f}) rad, "
+        f"split={split_error:+.6f} rad, split Tp={split_tp:+.6f} Nm, "
         f"Tp(R/L)=({vmc_r.Tp:+.6f}, {vmc_l.Tp:+.6f}) Nm, "
         f"wheel T(R/L)=({T_r:+.6f}, {T_l:+.6f}) Nm, "
         f"actuator ctrl(R/L)=({robot.data.ctrl[4]:+.6f}, {robot.data.ctrl[5]:+.6f}) Nm"
