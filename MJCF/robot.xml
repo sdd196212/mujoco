@@ -58,7 +58,7 @@
           <site name="GH-F" pos="-0.0604 0.0259 -0.03" size="0.01" rgba="0 1 0 1"/> 
           <site name="GH-little_wheel" pos="-0.033 -0.062 -0.01" size="0.01" rgba="0 1 0 1"/> 
           <geom type="mesh" material="joint_mat" mesh="GH"
-            class="touch" mass="1.64"/>
+            class="touch" mass="0.64"/>
 
           <body name="wheel_right" pos="0.25495 -0.039583 0.0155">
             <joint name="jwheel_right" pos="0 0 0" axis="0 0 -1"/>
@@ -131,7 +131,7 @@
           <joint name="jOP" pos="0 0 0" axis="0 0 -1" range="-1 0.85"/>
           <site name="OP-N" pos="-0.0604 0.0259 0.03" size="0.01" rgba="0 1 0 1"/> 
           <geom type="mesh" material="joint_mat" mesh="OP"
-          class="touch" mass="1.64"/>
+          class="touch" mass="0.64"/>
 
           <body name="wheel_left" pos="0.25495 -0.039576 -0.0155">
             <joint name="jwheel_left" pos="0 0 0" axis="0 0 1"/>
