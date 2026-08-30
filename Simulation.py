@@ -40,7 +40,8 @@ SPLIT_TP_MAX = 8.0          # Nm, correction only
 # a local PD loop instead of the LQR Tp output. Theta itself is not modified.
 FORCE_LQR_THETA_ZERO = False
 THETA_INSTALL_OFFSET = math.pi / 4.0
-LOCK_LEG_BODY_ANGLE_ZERO = True
+LOCK_LEG_BODY_ANGLE_ZERO = False
+#LOCK_LEG_BODY_ANGLE_ZERO = True
 LEG_BODY_ANGLE_KP = 20.0   # Nm/rad
 LEG_BODY_ANGLE_KD = 2.0    # Nm/(rad/s)
 
@@ -161,34 +162,29 @@ def apply_lqr(robot, vmc_r, vmc_l, lqr, enabled=True, roll_pid=None):
             else -vmc_l.theta - THETA_INSTALL_OFFSET/3
         )
         dtheta_l_lqr = 0.0 if FORCE_LQR_THETA_ZERO else -vmc_l.d_theta
-        u_r = lqr.control(theta_r_lqr, dtheta_r_lqr, robot.x, robot.d_x,
-                          -pitch, -gyro, vmc_r.L0)
-        # u_r = lqr.control(vmc_r.theta, vmc_r.d_theta, robot.x, robot.d_x,
-        #                           pitch, -gyro, vmc_r.L0)
+        # The wheel (Wt) and virtual-leg (Tp) rows use different measured
+        # sign conventions in this MuJoCo model. Compute each row with its
+        # own state instead of correcting the combined output afterward.
+        u_r_wheel = lqr.control(vmc_r.theta, vmc_r.d_theta, robot.x, robot.d_x,
+                                pitch, gyro, vmc_r.L0)
+        u_r_tp = lqr.control(vmc_r.theta, vmc_r.d_theta, robot.x, robot.d_x,
+                             -pitch, -gyro, vmc_r.L0)
+        u_r = (u_r_wheel[0], u_r_tp[1])
         # The left XML joints use the opposite rotational axes.  Keep the
         # left VMC geometry in its physical coordinates, but mirror theta
         # into the same LQR coordinate as the right leg.  Without this,
         # a symmetric pose appears as theta_R=-theta_L and produces
         # opposite wheel torques.
-        u_l = lqr.control(theta_l_lqr, dtheta_l_lqr, robot.x, robot.d_x,
-                          -pitch, -gyro, vmc_l.L0)
+        u_l_wheel = lqr.control(vmc_l.theta, vmc_l.d_theta, robot.x, robot.d_x,
+                                pitch, gyro, vmc_l.L0)
+        u_l_tp = lqr.control(-vmc_l.theta, -vmc_l.d_theta, robot.x, robot.d_x,
+                             -pitch, -gyro, vmc_l.L0)
+        u_l = (u_l_wheel[0], u_l_tp[1])
     else:
         u_r = u_l = (0.0, 0.0)
 
     T_r, Tp_r = map(float, u_r)
     T_l, Tp_l = map(float, u_l)
-    if enabled:
-        # The MuJoCo dx convention is opposite to the MATLAB Tp row.  Flip
-        # only the dx contribution to Tp; keep all other LQR terms unchanged.
-        K_r = lqr.gain_table.at(vmc_r.L0)
-        K_l = lqr.gain_table.at(vmc_l.L0)
-        Tp_r -= 2.0 * float(K_r[1, 3]) * float(robot.d_x)
-        Tp_l -= 2.0 * float(K_l[1, 3]) * float(robot.d_x)
-        # The LQR calls above use +pitch to reverse the wheel-torque pitch
-        # feedback. Restore the original pitch sign for Tp, which must keep
-        # the leg torque convention unchanged.
-        Tp_r -= 2.0 * float(K_r[1, 4]) * pitch
-        Tp_l -= 2.0 * float(K_l[1, 4]) * pitch
     if LOCK_LEG_BODY_ANGLE_ZERO and enabled:
         # Alpha is the leg angle in the body frame. Mirror the left-leg
         # coordinate before applying the same restoring law to both legs.
@@ -198,6 +194,7 @@ def apply_lqr(robot, vmc_r, vmc_l, lqr, enabled=True, roll_pid=None):
         dalpha_l_ctrl = float(-vmc_l.d_alpha)
         Tp_r = -LEG_BODY_ANGLE_KP * alpha_r_ctrl - LEG_BODY_ANGLE_KD * dalpha_r_ctrl
         Tp_l = -LEG_BODY_ANGLE_KP * alpha_l_ctrl - LEG_BODY_ANGLE_KD * dalpha_l_ctrl
+        Tp_r = -Tp_r
         split_tp, split_error = 0.0, alpha_r_ctrl + alpha_l_ctrl
     else:
         split_tp, split_error = split_torque_pid(
@@ -230,9 +227,8 @@ def apply_lqr(robot, vmc_r, vmc_l, lqr, enabled=True, roll_pid=None):
     # The left VMC plane is mirrored before actuator mapping.
     vmc_l.F0 = -vmc_l.F0
     vmc_r.Tp = Tp_r + split_tp
-    vmc_l.Tp = -Tp_l + split_tp
-    vmc_r.Tp = -vmc_r.Tp
-    vmc_l.Tp = vmc_l.Tp
+    vmc_l.Tp = -Tp_l - split_tp
+    
     vmc_r.vmc_calc_torque()
     vmc_l.vmc_calc_torque()
 
@@ -245,8 +241,8 @@ def apply_lqr(robot, vmc_r, vmc_l, lqr, enabled=True, roll_pid=None):
     ]
     # Positive MATLAB T drives +x. Both wheel axes require a negative control.
     # robot.wheel_torque = [-T_r, -T_l]
-    robot.wheel_torque = [-T_r, -T_l]
-    #robot.wheel_torque = [0, 0]
+    robot.wheel_torque = [T_r, T_l]
+    robot.wheel_torque = [0, 0]
     robot.actuator_set_torque()
     print(
         f"[LQR] F0(R/L)=({vmc_r.F0:+.6f}, {vmc_l.F0:+.6f}) N, "
