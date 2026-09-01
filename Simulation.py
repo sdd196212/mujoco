@@ -159,15 +159,15 @@ def apply_lqr(robot, vmc_r, vmc_l, lqr, enabled=True, roll_pid=None):
         dtheta_r_lqr = 0.0 if FORCE_LQR_THETA_ZERO else vmc_r.d_theta
         theta_l_lqr = (
             0.0 if FORCE_LQR_THETA_ZERO
-            else -vmc_l.theta - THETA_INSTALL_OFFSET/3
+            else vmc_l.theta - THETA_INSTALL_OFFSET/3
         )
-        dtheta_l_lqr = 0.0 if FORCE_LQR_THETA_ZERO else -vmc_l.d_theta
+        dtheta_l_lqr = 0.0 if FORCE_LQR_THETA_ZERO else vmc_l.d_theta
         # The wheel (Wt) and virtual-leg (Tp) rows use different measured
         # sign conventions in this MuJoCo model. Compute each row with its
         # own state instead of correcting the combined output afterward.
         u_r_wheel = lqr.control(vmc_r.theta, vmc_r.d_theta, robot.x, robot.d_x,
                                 pitch, gyro, vmc_r.L0)
-        u_r_tp = lqr.control(vmc_r.theta, vmc_r.d_theta, robot.x, robot.d_x,
+        u_r_tp = lqr.control(theta_r_lqr, vmc_r.d_theta, 0, 0,
                              -pitch, -gyro, vmc_r.L0)
         u_r = (u_r_wheel[0], u_r_tp[1])
         # The left XML joints use the opposite rotational axes.  Keep the
@@ -177,8 +177,8 @@ def apply_lqr(robot, vmc_r, vmc_l, lqr, enabled=True, roll_pid=None):
         # opposite wheel torques.
         u_l_wheel = lqr.control(vmc_l.theta, vmc_l.d_theta, robot.x, robot.d_x,
                                 pitch, gyro, vmc_l.L0)
-        u_l_tp = lqr.control(-vmc_l.theta, -vmc_l.d_theta, robot.x, robot.d_x,
-                             -pitch, -gyro, vmc_l.L0)
+        u_l_tp = lqr.control(-theta_l_lqr, -vmc_l.d_theta, 0, 0,
+                             pitch, gyro, vmc_l.L0)
         u_l = (u_l_wheel[0], u_l_tp[1])
     else:
         u_r = u_l = (0.0, 0.0)
