@@ -23,6 +23,6 @@ N/rad`, `Ki=1 N/(rad*s)`, `Kd=3 N*s/rad`, with a `+/-30 N` differential-force
 limit and integral anti-windup.
 
 Actuator limits are defined in `MJCF/robot.xml`: the four leg joint motors are
-limited to `+/-35 Nm` and the two wheel motors to `+/-4 Nm`. `Tp` has no
+limited to `+/-35 Nm` and the two wheel motors to `+/-3 Nm`. `Tp` has no
 software limit; after VMC mapping, `environment.py` applies only these final
 actuator limits.
