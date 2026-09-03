@@ -31,10 +31,10 @@ ROLL_F0_MAX = 30.0           # N, differential force limit
 # Anti-split PID. In mirrored VMC coordinates, symmetric legs satisfy
 # theta_R + theta_L = 0.
 SPLIT_KP = 18.0             # Nm/rad
-SPLIT_KI = 1.0              # Nm/(rad*s)
+SPLIT_KI = 2.0              # Nm/(rad*s)
 SPLIT_KD = 1.5              # Nm*s/rad
 SPLIT_INTEGRAL_LIMIT = 0.5  # rad*s
-SPLIT_TP_MAX = 8.0          # Nm, correction only
+SPLIT_TP_MAX = 20.0          # Nm, correction only
 
 # Step-by-step diagnosis mode: hold the leg-to-body angle alpha at zero with
 # a local PD loop instead of the LQR Tp output. Theta itself is not modified.
@@ -43,6 +43,7 @@ THETA_INSTALL_OFFSET = math.pi / 4.0
 LOCK_LEG_BODY_ANGLE_ZERO = False
 #LOCK_LEG_BODY_ANGLE_ZERO = True
 LEG_BODY_ANGLE_KP = 20.0   # Nm/rad
+
 LEG_BODY_ANGLE_KD = 2.0    # Nm/(rad/s)
 
 
@@ -154,12 +155,12 @@ def apply_lqr(robot, vmc_r, vmc_l, lqr, enabled=True, roll_pid=None):
         # the previous convention. Its control subsystem applies K @ state.
         theta_r_lqr = (
             0.0 if FORCE_LQR_THETA_ZERO
-            else vmc_r.theta - THETA_INSTALL_OFFSET/3
+            else vmc_r.theta #- THETA_INSTALL_OFFSET/3
         )
         dtheta_r_lqr = 0.0 if FORCE_LQR_THETA_ZERO else vmc_r.d_theta
         theta_l_lqr = (
             0.0 if FORCE_LQR_THETA_ZERO
-            else vmc_l.theta - THETA_INSTALL_OFFSET/3
+            else vmc_l.theta #+ THETA_INSTALL_OFFSET/3
         )
         dtheta_l_lqr = 0.0 if FORCE_LQR_THETA_ZERO else vmc_l.d_theta
         # The wheel (Wt) and virtual-leg (Tp) rows use different measured
@@ -167,7 +168,7 @@ def apply_lqr(robot, vmc_r, vmc_l, lqr, enabled=True, roll_pid=None):
         # own state instead of correcting the combined output afterward.
         u_r_wheel = lqr.control(-theta_r_lqr, -vmc_r.d_theta, robot.x, robot.d_x,
                                 pitch, gyro, vmc_r.L0)
-        u_r_tp = lqr.control(theta_r_lqr, vmc_r.d_theta, 0, 0,
+        u_r_tp = lqr.control(vmc_r.theta, vmc_r.d_theta, -robot.x, -robot.d_x,
                              -pitch, -gyro, vmc_r.L0)
         u_r = (u_r_wheel[0], u_r_tp[1])
         # The left XML joints use the opposite rotational axes.  Keep the
@@ -177,7 +178,7 @@ def apply_lqr(robot, vmc_r, vmc_l, lqr, enabled=True, roll_pid=None):
         # opposite wheel torques.
         u_l_wheel = lqr.control(theta_l_lqr, vmc_l.d_theta, robot.x, robot.d_x,
                                 pitch, gyro, vmc_l.L0)
-        u_l_tp = lqr.control(theta_l_lqr, vmc_l.d_theta, 0, 0,
+        u_l_tp = lqr.control(vmc_l.theta, vmc_l.d_theta, robot.x, robot.d_x,
                              pitch, gyro, vmc_l.L0)
         u_l = (u_l_wheel[0], u_l_tp[1])
     else:
