@@ -166,9 +166,9 @@ def apply_lqr(robot, vmc_r, vmc_l, lqr, enabled=True, roll_pid=None):
         # The wheel (Wt) and virtual-leg (Tp) rows use different measured
         # sign conventions in this MuJoCo model. Compute each row with its
         # own state instead of correcting the combined output afterward.
-        u_r_wheel = lqr.control(-theta_r_lqr, -vmc_r.d_theta, robot.x, robot.d_x,
+        u_r_wheel = lqr.control(-theta_r_lqr, -vmc_r.d_theta, robot.x, robot.d_x*2,
                                 pitch, gyro, vmc_r.L0)
-        u_r_tp = lqr.control(vmc_r.theta, vmc_r.d_theta, -robot.x, -robot.d_x*0.5,
+        u_r_tp = lqr.control(vmc_r.theta, vmc_r.d_theta, -robot.x, -robot.d_x,
                             -pitch, -gyro, vmc_r.L0)
         u_r = (u_r_wheel[0], u_r_tp[1])
         # The left XML joints use the opposite rotational axes.  Keep the
@@ -176,10 +176,10 @@ def apply_lqr(robot, vmc_r, vmc_l, lqr, enabled=True, roll_pid=None):
         # into the same LQR coordinate as the right leg.  Without this,
         # a symmetric pose appears as theta_R=-theta_L and produces
         # opposite wheel torques.
-        u_l_wheel = lqr.control(theta_l_lqr, vmc_l.d_theta,robot.x, robot.d_x,
+        u_l_wheel = lqr.control(theta_l_lqr, vmc_l.d_theta,robot.x, robot.d_x*2,
                                 pitch, gyro, vmc_l.L0)
-        u_l_tp = lqr.control(vmc_l.theta, vmc_l.d_theta, robot.x, robot.d_x*0.5,
-                            pitch, gyro, vmc_l.L0)
+        u_l_tp = lqr.control(-vmc_l.theta, -vmc_l.d_theta, -robot.x, -robot.d_x,
+                            -pitch, -gyro, vmc_l.L0)
         u_l = (u_l_wheel[0], u_l_tp[1])
     else:
         u_r = u_l = (0.0, 0.0)
@@ -195,7 +195,7 @@ def apply_lqr(robot, vmc_r, vmc_l, lqr, enabled=True, roll_pid=None):
         dalpha_l_ctrl = float(-vmc_l.d_alpha)
         Tp_r = -LEG_BODY_ANGLE_KP * alpha_r_ctrl - LEG_BODY_ANGLE_KD * dalpha_r_ctrl
         Tp_l = -LEG_BODY_ANGLE_KP * alpha_l_ctrl - LEG_BODY_ANGLE_KD * dalpha_l_ctrl
-        Tp_r = -Tp_r
+
         split_tp, split_error = 0.0, alpha_r_ctrl + alpha_l_ctrl
     else:
         split_tp, split_error = split_torque_pid(
@@ -228,7 +228,7 @@ def apply_lqr(robot, vmc_r, vmc_l, lqr, enabled=True, roll_pid=None):
     # The left VMC plane is mirrored before actuator mapping.
  
     vmc_r.Tp = Tp_r - split_tp
-    vmc_l.Tp = -Tp_l - split_tp
+    vmc_l.Tp = Tp_l - split_tp
     
     
     vmc_r.vmc_calc_torque()
