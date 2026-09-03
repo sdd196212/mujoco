@@ -168,18 +168,18 @@ def apply_lqr(robot, vmc_r, vmc_l, lqr, enabled=True, roll_pid=None):
         # own state instead of correcting the combined output afterward.
         u_r_wheel = lqr.control(-theta_r_lqr, -vmc_r.d_theta, robot.x, robot.d_x,
                                 pitch, gyro, vmc_r.L0)
-        u_r_tp = lqr.control(vmc_r.theta, vmc_r.d_theta, -robot.x, -robot.d_x,
-                             -pitch, -gyro, vmc_r.L0)
+        u_r_tp = lqr.control(vmc_r.theta, vmc_r.d_theta, -robot.x, -robot.d_x*0.5,
+                            -pitch, -gyro, vmc_r.L0)
         u_r = (u_r_wheel[0], u_r_tp[1])
         # The left XML joints use the opposite rotational axes.  Keep the
         # left VMC geometry in its physical coordinates, but mirror theta
         # into the same LQR coordinate as the right leg.  Without this,
         # a symmetric pose appears as theta_R=-theta_L and produces
         # opposite wheel torques.
-        u_l_wheel = lqr.control(theta_l_lqr, vmc_l.d_theta, robot.x, robot.d_x,
+        u_l_wheel = lqr.control(theta_l_lqr, vmc_l.d_theta,robot.x, robot.d_x,
                                 pitch, gyro, vmc_l.L0)
-        u_l_tp = lqr.control(vmc_l.theta, vmc_l.d_theta, robot.x, robot.d_x,
-                             pitch, gyro, vmc_l.L0)
+        u_l_tp = lqr.control(vmc_l.theta, vmc_l.d_theta, robot.x, robot.d_x*0.5,
+                            pitch, gyro, vmc_l.L0)
         u_l = (u_l_wheel[0], u_l_tp[1])
     else:
         u_r = u_l = (0.0, 0.0)
