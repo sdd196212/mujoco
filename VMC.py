@@ -1,5 +1,5 @@
 import math
-from math import sin,cos
+
 
 class leg_VMC:
     """
@@ -80,6 +80,7 @@ class leg_VMC:
         self.first_flag = 0
     
     def vmc_calc_pos(self, dt=0.004, phi1=None, phi4=None, pitch=None, gyro=None):
+        """完成虚拟腿正运动学计算并更新状态变量。"""
 
         # 使用参数或类属性
         if pitch is not None:
@@ -142,12 +143,6 @@ class leg_VMC:
 
         # 计算alpha
         self.alpha = math.pi/2.0 - self.phi0
-        
-                
-        """
-        至此,轰轰烈烈的正向大运动学结束了
-        """
-
 
         # 计算phi0的变化率（数值微分）
         if self.first_flag == 0:
@@ -176,24 +171,20 @@ class leg_VMC:
     def vmc_calc_torque(self):
         sin_phi3_phi2 = math.sin(self.phi3 - self.phi2)
 
-
         # 计算j11
-        self.j11 = (self.l1 * math.sin(self.phi0 - self.phi3) * 
+        self.j11 = (self.l1 * math.sin(self.phi0 - self.phi3) *
                    math.sin(self.phi1 - self.phi2)) / sin_phi3_phi2
-        
-        
-        self.j12 = (self.l1 * math.cos(self.phi0 - self.phi3) * 
+
+        self.j12 = (self.l1 * math.cos(self.phi0 - self.phi3) *
                    math.sin(self.phi1 - self.phi2)) / (self.L0 * sin_phi3_phi2)
-        
-        self.j21 = (self.l4 * math.sin(self.phi0 - self.phi2) * 
+
+        self.j21 = (self.l4 * math.sin(self.phi0 - self.phi2) *
                    math.sin(self.phi3 - self.phi4)) / sin_phi3_phi2
-        
-        self.j22 = (self.l4 * math.cos(self.phi0 - self.phi2) * 
+
+        self.j22 = (self.l4 * math.cos(self.phi0 - self.phi2) *
                    math.sin(self.phi3 - self.phi4)) / (self.L0 * sin_phi3_phi2)
-        
+
         self.torque_set[1] = self.j11 * self.F0 + self.j12 * self.Tp
         self.torque_set[0] = self.j21 * self.F0 + self.j22 * self.Tp
 
-    #Tp：扭转力；F0：支持力
-
-
+    # Tp：扭转力；F0：支撑力

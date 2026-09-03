@@ -15,8 +15,6 @@ from Controller import (
     update_vmc_positions,
 )
 
-
-
 CONTROL_DIVIDER = 4  # 模型步长为 1 ms，控制更新周期为 4 ms
 
 
@@ -36,9 +34,7 @@ def apply_lqr(robot, vmc_r, vmc_l, lqr, enabled=True, roll_pid=None):
         robot, vmc_r, vmc_l, control_dt, enabled=enabled
     )
 
-    # Keep one PID instance across control cycles when the caller does not
-    # explicitly provide one.  This preserves the integral state in scripts
-    # that use apply_lqr() directly.
+    # 调用方未提供 PID 时，在控制周期之间复用实例以保留积分状态。
     if roll_pid is None:
         roll_pid = getattr(robot, "_roll_pid", None)
         if roll_pid is None:
@@ -54,17 +50,16 @@ def apply_lqr(robot, vmc_r, vmc_l, lqr, enabled=True, roll_pid=None):
         roll_pid.reset()
         roll_f0 = 0.0
 
-    # Direct length PID, followed by the existing roll differential.
+    # 先计算腿长 PID，再叠加滚转差分力。
     base_f0_r = leg_force_f0(vmc_r, control_dt, enabled=enabled)
     base_f0_l = leg_force_f0(vmc_l, control_dt, enabled=enabled)
     vmc_r.F0 = max(-F0_MAX, min(F0_MAX, base_f0_r - roll_f0))
-    vmc_l.F0 =-max(-F0_MAX, min(F0_MAX, base_f0_l + roll_f0))
-    # The left VMC plane is mirrored before actuator mapping.
- 
+    vmc_l.F0 = -max(-F0_MAX, min(F0_MAX, base_f0_l + roll_f0))
+    # 左侧 VMC 平面在执行器映射前采用镜像方向。
+
     vmc_r.Tp = Tp_r - split_tp
     vmc_l.Tp = Tp_l - split_tp
-    
-    
+
     map_vmc_torques(robot, vmc_r, vmc_l)
 
     robot.wheel_torque = [T_r, T_l]
@@ -91,7 +86,7 @@ def main():
     vmc_r = leg_VMC()
     vmc_l = leg_VMC()
     lqr = LQRController()
-#
+
     robot.sensor_read_data()
     step_count = 0
     try:

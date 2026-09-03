@@ -1,4 +1,4 @@
-"""MATLAB-compatible gain-table LQR controller."""
+"""兼容 MATLAB 增益表的 LQR 控制器。"""
 
 from pathlib import Path
 
@@ -6,7 +6,7 @@ import numpy as np
 
 try:
     from scipy.io import loadmat
-except ImportError:  # CSV fallback keeps the MuJoCo runtime lightweight.
+except ImportError:  # CSV 回退方案可避免 MuJoCo 运行环境强制依赖 SciPy。
     loadmat = None
 
 
@@ -17,7 +17,7 @@ GAIN_NAMES = (
 
 
 class LQRGainTable:
-    """Load and linearly interpolate the 31 MATLAB gain samples."""
+    """加载 31 组 MATLAB 增益样本并进行线性插值。"""
 
     def __init__(self, path=None):
         self.path = Path(path or Path(__file__).with_name("lqr_gains.mat"))
@@ -62,10 +62,10 @@ class LQRGainTable:
                     raise ValueError(f"{name} has {values.size} samples, expected {self.leg.size}")
                 row.append(values[order])
             rows.append(np.vstack(row))
-        self.gains = np.stack(rows, axis=0).transpose(2, 0, 1)  # sample, input, state
+        self.gains = np.stack(rows, axis=0).transpose(2, 0, 1)  # 样本、输入、状态
 
     def at(self, leg_length):
-        """Return a 2x6 matrix, clipping outside the exported length range."""
+        """返回 2x6 矩阵，并将超出导出范围的腿长截断至边界。"""
         length = float(np.clip(leg_length, self.leg[0], self.leg[-1]))
         return np.asarray(
             [[np.interp(length, self.leg, self.gains[:, r, c]) for c in range(6)]
@@ -73,10 +73,10 @@ class LQRGainTable:
 
 
 class LQRController:
-    """Compute [T, Tp] using the MATLAB state order.
+    """按 MATLAB 状态顺序计算 [T, Tp]。
 
-    The exported gains already include the sign convention used by the
-    Simulink ``control`` subsystem, whose matrix product is ``K @ state``.
+    导出的增益已包含 Simulink ``control`` 子系统采用的符号约定，
+    其矩阵乘法为 ``K @ state``。
     """
 
     def __init__(self, gain_table=None, path=None):

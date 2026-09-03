@@ -1,5 +1,4 @@
 from pynput import keyboard
-import threading
 import mujoco
 import mujoco.viewer
 import numpy as np
@@ -9,21 +8,21 @@ class KeyboardController:
         self.command = np.zeros(3)  # 示例：3维控制指令
         self.listener = None
         self._init_keyboard()
-    
+
     def _on_press(self, key):
         try:
             if key.char == 'w':
-                self.command[0] = 1.0  
+                self.command[0] = 1.0
             elif key.char == 's':
-                self.command[0] = -1.0  
+                self.command[0] = -1.0
             elif key.char == 'a':
-                self.command[1] = -1.0  
+                self.command[1] = -1.0
             elif key.char == 'd':
-                self.command[1] = 1.0  
+                self.command[1] = 1.0
         except AttributeError:
             if key == keyboard.Key.space:
-                self.command[2] = 1.0  
-    
+                self.command[2] = 1.0
+
     def _on_release(self, key):
         # 释放按键时重置
         try:
@@ -34,13 +33,13 @@ class KeyboardController:
         except AttributeError:
             if key == keyboard.Key.space:
                 self.command[2] = 0.0
-    
+
     def _init_keyboard(self):
         self.listener = keyboard.Listener(
             on_press=self._on_press,
             on_release=self._on_release)
         self.listener.start()
-    
+
     def get_command(self):
         return self.command.copy()
 
@@ -54,11 +53,10 @@ if __name__ == '__main__':
         while viewer.is_running:
             # 获取键盘指令
             cmd = controller.get_command()
-            # print(cmd)
             # 将指令应用到控制器
             data.ctrl[0] = cmd[0] * 10.0  # 前向力
             data.ctrl[1] = cmd[1] * 5.0   # 转向
-            
+
             mujoco.mj_step(model, data)
             viewer.sync()
             time.sleep(0.01)

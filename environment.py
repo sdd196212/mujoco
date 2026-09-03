@@ -1,9 +1,8 @@
 import mujoco
 import mujoco.viewer
 import numpy as np
-import time
-import math
-from caculation import *
+from caculation import orientation2euler
+
 
 class LegWheelRobot:
     """腿轮机器人仿真类"""
@@ -15,8 +14,7 @@ class LegWheelRobot:
 
         self.sensor_T = float(self.model.opt.timestep)
         self.sensor_f = 1/self.sensor_T 
-        # The imported MuJoCo wheel mesh is 77 mm in radius.  Keep this
-        # conversion in metres because qpos/qvel are SI quantities.
+        # 导入的 MuJoCo 车轮网格半径为 77 mm；qpos/qvel 使用 SI 单位，因此换算为米。
         self.wheel_r = 0.077
 
         self.gyro = []
@@ -32,7 +30,6 @@ class LegWheelRobot:
 
         self.sensor_data = []
 
-
         self.left_wheel_pos = 0
         self.right_wheel_pos = 0
         
@@ -41,8 +38,6 @@ class LegWheelRobot:
 
         self.wheel_torque = [0,0]#顺序：右、左
         self.joint_torque = [0,0,0,0]#顺序：右前、右后、左前、左后
-
-
 
         # 启动可视化界面
         self.viewer = mujoco.viewer.launch_passive(self.model, self.data) if visualize else None
@@ -64,7 +59,7 @@ class LegWheelRobot:
         self.left_wheel_pos =  self.data.sensor('Left_Wheel_pos').data.copy()[0]
         right_qdot = (self.right_wheel_pos - self.last_right_wheel_pos) * self.sensor_f
         left_qdot = (self.left_wheel_pos - self.last_left_wheel_pos) * self.sensor_f
-        # Positive wheel_vel means forward chassis motion on both sides.
+        # 两侧 wheel_vel 为正均表示车身向前运动。
         self.wheel_vel[0] = -float(right_qdot)
         self.wheel_vel[1] = float(left_qdot)
         self.last_right_wheel_pos = self.right_wheel_pos
@@ -78,7 +73,6 @@ class LegWheelRobot:
         left_front_pos = self.data.sensor('Left_front_joint_pos').data.copy()[0] + 0.003     # jIJ
         left_rear_pos = self.data.sensor('Left_rear_joint_pos').data.copy()[0] - 1.3         # jIO
         self.joint_pos = np.array([right_front_pos, right_rear_pos, left_front_pos, left_rear_pos])
-        
 
     def actuator_set_torque(self):
         """设置执行器力矩"""
@@ -110,7 +104,6 @@ class LegWheelRobot:
             if idx != -1 and i < len(joint_angles):
                 self.data.qpos[self.model.jnt_qposadr[idx]] = joint_angles[i]
                 self.data.qvel[self.model.jnt_dofadr[idx]] = 0.0
-                # print(idx)
         
         # 更新模型状态
         mujoco.mj_forward(self.model, self.data)
