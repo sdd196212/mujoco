@@ -1,7 +1,25 @@
 from types import SimpleNamespace
+import sys
 import unittest
+from types import ModuleType
+from unittest.mock import patch
 
-import Simulation
+
+def _module_stub(name, class_name):
+    """构造仅满足 Simulation 导入所需的最小模块占位。"""
+    module = ModuleType(name)
+    setattr(module, class_name, type(class_name, (), {}))
+    return module
+
+
+# Simulation 的编排逻辑不需要实例化 MuJoCo 依赖；导入时临时隔离这些模块。
+_import_stubs = {
+    "environment": _module_stub("environment", "LegWheelRobot"),
+    "VMC": _module_stub("VMC", "leg_VMC"),
+    "lqr_controller": _module_stub("lqr_controller", "LQRController"),
+}
+with patch.dict(sys.modules, _import_stubs):
+    import Simulation
 
 
 class FakeVMC:
