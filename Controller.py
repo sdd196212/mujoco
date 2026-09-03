@@ -1,5 +1,7 @@
 """控制器参数与通用控制辅助函数。"""
 
+import math
+
 
 # 虚拟腿长度 PID 和径向力限幅
 LEG_LENGTH_TARGET = 0.28
@@ -22,6 +24,9 @@ SPLIT_KI = 2.0
 SPLIT_KD = 1.5
 SPLIT_INTEGRAL_LIMIT = 0.5
 SPLIT_TP_MAX = 20.0
+
+# LQR 诊断开关：将 LQR 使用的腿角和角速度强制设为零。
+FORCE_LQR_THETA_ZERO = False
 
 
 class RollPID:
@@ -100,6 +105,71 @@ def split_torque_pid(robot, vmc_r, vmc_l, dt, enabled=True):
     )
     torque = max(-SPLIT_TP_MAX, min(SPLIT_TP_MAX, torque))
     return float(torque), float(error)
+
+
+def update_vmc_positions(robot, vmc_r, vmc_l, control_dt):
+    """按仿真传感器约定更新左右虚拟腿的位置状态。"""
+    pitch = float(robot.euler[1])
+    gyro = float(robot.gyro[1])
+    vmc_r.vmc_calc_pos(
+        dt=control_dt,
+        phi1=float(robot.joint_pos[0] + math.pi),
+        phi4=float(robot.joint_pos[1]),
+        pitch=pitch,
+        gyro=gyro,
+    )
+    vmc_l.vmc_calc_pos(
+        dt=control_dt,
+        phi1=float(robot.joint_pos[3] + math.pi),
+        phi4=float(robot.joint_pos[2]),
+        pitch=-pitch,
+        gyro=-gyro,
+    )
+
+
+def compute_lqr_outputs(robot, vmc_r, vmc_l, lqr, enabled=True):
+    """计算左右腿 LQR 输出并保留 MuJoCo 的行级符号映射。"""
+    theta_r_lqr = 0.0
+    dtheta_r_lqr = 0.0
+    theta_l_lqr = 0.0
+    dtheta_l_lqr = 0.0
+    if enabled:
+        # 左右腿的角度和角速度采用各自 LQR 坐标约定。
+        theta_r_lqr = 0.0 if FORCE_LQR_THETA_ZERO else vmc_r.theta
+        dtheta_r_lqr = 0.0 if FORCE_LQR_THETA_ZERO else vmc_r.d_theta
+        theta_l_lqr = 0.0 if FORCE_LQR_THETA_ZERO else vmc_l.theta
+        dtheta_l_lqr = 0.0 if FORCE_LQR_THETA_ZERO else vmc_l.d_theta
+
+        # Wt 与 Tp 行使用不同的测量符号约定，分别计算后再组合。
+        u_r_wheel = lqr.control(
+            -theta_r_lqr, -vmc_r.d_theta, robot.x, robot.d_x * 2,
+            float(robot.euler[1]), float(robot.gyro[1]), vmc_r.L0,
+        )
+        u_r_tp = lqr.control(
+            vmc_r.theta, vmc_r.d_theta, -robot.x, -robot.d_x,
+            -float(robot.euler[1]), -float(robot.gyro[1]), vmc_r.L0,
+        )
+        u_r = (u_r_wheel[0], u_r_tp[1])
+
+        # 左侧关节旋转轴相反，因此将左腿镜像到右腿 LQR 坐标。
+        u_l_wheel = lqr.control(
+            theta_l_lqr, vmc_l.d_theta, robot.x, robot.d_x * 2,
+            float(robot.euler[1]), float(robot.gyro[1]), vmc_l.L0,
+        )
+        u_l_tp = lqr.control(
+            -vmc_l.theta, -vmc_l.d_theta, -robot.x, -robot.d_x,
+            -float(robot.euler[1]), -float(robot.gyro[1]), vmc_l.L0,
+        )
+        u_l = (u_l_wheel[0], u_l_tp[1])
+    else:
+        u_r = u_l = (0.0, 0.0)
+
+    return (
+        (float(u_r[0]), float(u_r[1])),
+        (float(u_l[0]), float(u_l[1])),
+        float(theta_r_lqr),
+        float(theta_l_lqr),
+    )
 
 
 class PID:

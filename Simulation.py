@@ -6,7 +6,15 @@ from pathlib import Path
 from environment import LegWheelRobot
 from VMC import leg_VMC
 from lqr_controller import LQRController
-from Controller import F0_MAX, RollPID, leg_force_f0, split_torque_pid
+from Controller import (
+    F0_MAX,
+    FORCE_LQR_THETA_ZERO,
+    RollPID,
+    compute_lqr_outputs,
+    leg_force_f0,
+    split_torque_pid,
+    update_vmc_positions,
+)
 
 
 
@@ -14,7 +22,6 @@ CONTROL_DIVIDER = 4  # model timestep is 1 ms; control update is 4 ms
 
 # Step-by-step diagnosis mode: hold the leg-to-body angle alpha at zero with
 # a local PD loop instead of the LQR Tp output. Theta itself is not modified.
-FORCE_LQR_THETA_ZERO = False
 THETA_INSTALL_OFFSET = math.pi / 4.0
 LOCK_LEG_BODY_ANGLE_ZERO = False
 #LOCK_LEG_BODY_ANGLE_ZERO = True
@@ -29,59 +36,10 @@ def apply_lqr(robot, vmc_r, vmc_l, lqr, enabled=True, roll_pid=None):
     gyro = float(robot.gyro[1])
     control_dt = CONTROL_DIVIDER * robot.sensor_T
 
-    # Keep the original MuJoCo VMC input convention.
-    vmc_r.vmc_calc_pos(
-        dt=control_dt,
-        phi1=float(robot.joint_pos[0] + math.pi),
-        phi4=float(robot.joint_pos[1]),
-        pitch=pitch,
-        gyro=gyro,
+    update_vmc_positions(robot, vmc_r, vmc_l, control_dt)
+    (u_r, u_l, theta_r_lqr, theta_l_lqr) = compute_lqr_outputs(
+        robot, vmc_r, vmc_l, lqr, enabled=enabled
     )
-    vmc_l.vmc_calc_pos(
-        dt=control_dt,
-        phi1=float(robot.joint_pos[3] + math.pi),
-        phi4=float(robot.joint_pos[2]),
-        pitch=-pitch,
-        gyro=-gyro,
-    )
-    # Keep printable LQR inputs defined even when the controller is disabled.
-    theta_r_lqr = 0.0
-    dtheta_r_lqr = 0.0
-    theta_l_lqr = 0.0
-    dtheta_l_lqr = 0.0
-    if enabled:
-        # Use +pitch here so the wheel-torque pitch feedback is opposite to
-        # the previous convention. Its control subsystem applies K @ state.
-        theta_r_lqr = (
-            0.0 if FORCE_LQR_THETA_ZERO
-            else vmc_r.theta #- THETA_INSTALL_OFFSET/3
-        )
-        dtheta_r_lqr = 0.0 if FORCE_LQR_THETA_ZERO else vmc_r.d_theta
-        theta_l_lqr = (
-            0.0 if FORCE_LQR_THETA_ZERO
-            else vmc_l.theta #+ THETA_INSTALL_OFFSET/3
-        )
-        dtheta_l_lqr = 0.0 if FORCE_LQR_THETA_ZERO else vmc_l.d_theta
-        # The wheel (Wt) and virtual-leg (Tp) rows use different measured
-        # sign conventions in this MuJoCo model. Compute each row with its
-        # own state instead of correcting the combined output afterward.
-        u_r_wheel = lqr.control(-theta_r_lqr, -vmc_r.d_theta, robot.x, robot.d_x*2,
-                                pitch, gyro, vmc_r.L0)
-        u_r_tp = lqr.control(vmc_r.theta, vmc_r.d_theta, -robot.x, -robot.d_x,
-                            -pitch, -gyro, vmc_r.L0)
-        u_r = (u_r_wheel[0], u_r_tp[1])
-        # The left XML joints use the opposite rotational axes.  Keep the
-        # left VMC geometry in its physical coordinates, but mirror theta
-        # into the same LQR coordinate as the right leg.  Without this,
-        # a symmetric pose appears as theta_R=-theta_L and produces
-        # opposite wheel torques.
-        u_l_wheel = lqr.control(theta_l_lqr, vmc_l.d_theta,robot.x, robot.d_x*2,
-                                pitch, gyro, vmc_l.L0)
-        u_l_tp = lqr.control(-vmc_l.theta, -vmc_l.d_theta, -robot.x, -robot.d_x,
-                            -pitch, -gyro, vmc_l.L0)
-        u_l = (u_l_wheel[0], u_l_tp[1])
-    else:
-        u_r = u_l = (0.0, 0.0)
 
     T_r, Tp_r = map(float, u_r)
     T_l, Tp_l = map(float, u_l)
