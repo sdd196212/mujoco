@@ -16,6 +16,8 @@ from Controller import (
 )
 
 CONTROL_DIVIDER = 4  # 模型步长为 1 ms，控制更新周期为 4 ms
+# LQR 诊断开关：将四次 LQR 调用的腿角和角速度强制设为零。
+FORCE_LQR_THETA_ZERO = False
 
 
 def apply_lqr(robot, vmc_r, vmc_l, lqr, enabled=True, roll_pid=None):
@@ -25,7 +27,12 @@ def apply_lqr(robot, vmc_r, vmc_l, lqr, enabled=True, roll_pid=None):
 
     update_vmc_positions(robot, vmc_r, vmc_l, control_dt)
     (u_r, u_l, theta_r_lqr, theta_l_lqr) = compute_lqr_outputs(
-        robot, vmc_r, vmc_l, lqr, enabled=enabled
+        robot,
+        vmc_r,
+        vmc_l,
+        lqr,
+        enabled=enabled,
+        force_theta_zero=FORCE_LQR_THETA_ZERO,
     )
 
     T_r, Tp_r = map(float, u_r)
