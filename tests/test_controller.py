@@ -116,6 +116,37 @@ class ControllerTest(unittest.TestCase):
         self.assertEqual(split_torque_pid(robot, right, left, 0.01, enabled=False), (0.0, 0.0))
         self.assertEqual(robot.split_integral, 0.0)
 
+    def test_map_vmc_torques_writes_xml_joint_order_without_actuator_side_effect(self):
+        map_vmc_torques = getattr(Controller, "map_vmc_torques", None)
+        self.assertIsNotNone(map_vmc_torques)
+
+        class TorqueVMC:
+            def __init__(self, torque_set):
+                self.torque_set = torque_set
+                self.calls = 0
+
+            def vmc_calc_torque(self):
+                self.calls += 1
+
+        class Robot:
+            def __init__(self):
+                self.joint_torque = []
+                self.actuator_calls = 0
+
+            def actuator_set_torque(self):
+                self.actuator_calls += 1
+
+        robot = Robot()
+        vmc_r = TorqueVMC([1.25, 2.5])
+        vmc_l = TorqueVMC([3.75, 5.0])
+
+        map_vmc_torques(robot, vmc_r, vmc_l)
+
+        self.assertEqual(vmc_r.calls, 1)
+        self.assertEqual(vmc_l.calls, 1)
+        self.assertEqual(robot.joint_torque, [2.5, 1.25, -3.75, -5.0])
+        self.assertEqual(robot.actuator_calls, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

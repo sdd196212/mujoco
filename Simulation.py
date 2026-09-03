@@ -1,6 +1,5 @@
-"""Run the MuJoCo wheel-leg simulation with the MATLAB LQR chain."""
+"""运行基于 MATLAB LQR 控制链的 MuJoCo 轮腿仿真。"""
 
-import math
 from pathlib import Path
 
 from environment import LegWheelRobot
@@ -8,32 +7,22 @@ from VMC import leg_VMC
 from lqr_controller import LQRController
 from Controller import (
     F0_MAX,
-    FORCE_LQR_THETA_ZERO,
     RollPID,
     compute_lqr_outputs,
     leg_force_f0,
+    map_vmc_torques,
     split_torque_pid,
     update_vmc_positions,
 )
 
 
 
-CONTROL_DIVIDER = 4  # model timestep is 1 ms; control update is 4 ms
-
-# Step-by-step diagnosis mode: hold the leg-to-body angle alpha at zero with
-# a local PD loop instead of the LQR Tp output. Theta itself is not modified.
-THETA_INSTALL_OFFSET = math.pi / 4.0
-LOCK_LEG_BODY_ANGLE_ZERO = False
-#LOCK_LEG_BODY_ANGLE_ZERO = True
-LEG_BODY_ANGLE_KP = 20.0   # Nm/rad
-
-LEG_BODY_ANGLE_KD = 2.0    # Nm/(rad/s)
+CONTROL_DIVIDER = 4  # 模型步长为 1 ms，控制更新周期为 4 ms
 
 
 def apply_lqr(robot, vmc_r, vmc_l, lqr, enabled=True, roll_pid=None):
-    """Compute canonical torques and map them to the six XML actuators."""
+    """计算标准力矩并映射到 XML 中的六个执行器。"""
     pitch = float(robot.euler[1])
-    gyro = float(robot.gyro[1])
     control_dt = CONTROL_DIVIDER * robot.sensor_T
 
     update_vmc_positions(robot, vmc_r, vmc_l, control_dt)
@@ -43,21 +32,9 @@ def apply_lqr(robot, vmc_r, vmc_l, lqr, enabled=True, roll_pid=None):
 
     T_r, Tp_r = map(float, u_r)
     T_l, Tp_l = map(float, u_l)
-    if LOCK_LEG_BODY_ANGLE_ZERO and enabled:
-        # Alpha is the leg angle in the body frame. Mirror the left-leg
-        # coordinate before applying the same restoring law to both legs.
-        alpha_r_ctrl = float(vmc_r.alpha)
-        dalpha_r_ctrl = float(vmc_r.d_alpha)
-        alpha_l_ctrl = float(-vmc_l.alpha)
-        dalpha_l_ctrl = float(-vmc_l.d_alpha)
-        Tp_r = -LEG_BODY_ANGLE_KP * alpha_r_ctrl - LEG_BODY_ANGLE_KD * dalpha_r_ctrl
-        Tp_l = -LEG_BODY_ANGLE_KP * alpha_l_ctrl - LEG_BODY_ANGLE_KD * dalpha_l_ctrl
-
-        split_tp, split_error = 0.0, alpha_r_ctrl + alpha_l_ctrl
-    else:
-        split_tp, split_error = split_torque_pid(
-            robot, vmc_r, vmc_l, control_dt, enabled=enabled
-        )
+    split_tp, split_error = split_torque_pid(
+        robot, vmc_r, vmc_l, control_dt, enabled=enabled
+    )
 
     # Keep one PID instance across control cycles when the caller does not
     # explicitly provide one.  This preserves the integral state in scripts
@@ -88,20 +65,9 @@ def apply_lqr(robot, vmc_r, vmc_l, lqr, enabled=True, roll_pid=None):
     vmc_l.Tp = Tp_l - split_tp
     
     
-    vmc_r.vmc_calc_torque()
-    vmc_l.vmc_calc_torque()
+    map_vmc_torques(robot, vmc_r, vmc_l)
 
-    # VMC torque_set is [phi4, phi1], matching the existing actuator order.
-    robot.joint_torque = [
-        vmc_r.torque_set[1],   # right jAB / phi1
-        vmc_r.torque_set[0],   # right jAG / phi4
-        -vmc_l.torque_set[0],   # left jIJ / -phi4
-        -vmc_l.torque_set[1],   # left jIO / -phi1
-    ]
-    # Positive MATLAB T drives +x. Both wheel axes require a negative control.
-    
     robot.wheel_torque = [T_r, T_l]
-    #robot.wheel_torque = [0, 0]
     robot.actuator_set_torque()
     print(
         f"[LQR] F0(R/L)=({vmc_r.F0:+.6f}, {vmc_l.F0:+.6f}) N, "

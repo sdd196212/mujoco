@@ -172,6 +172,18 @@ def compute_lqr_outputs(robot, vmc_r, vmc_l, lqr, enabled=True):
     )
 
 
+def map_vmc_torques(robot, vmc_r, vmc_l):
+    """计算左右 VMC 关节力矩并按 XML 执行器顺序写入机器人。"""
+    vmc_r.vmc_calc_torque()
+    vmc_l.vmc_calc_torque()
+    robot.joint_torque = [
+        vmc_r.torque_set[1],
+        vmc_r.torque_set[0],
+        -vmc_l.torque_set[0],
+        -vmc_l.torque_set[1],
+    ]
+
+
 class PID:
     def __init__(self, p,i,d):
         # self.kp, self.ki, self.kd = pid_params
